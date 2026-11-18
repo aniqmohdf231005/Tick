@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tick</title>
+<meta name="description" content="Track your daily activities.">
+<meta name="theme-color" content="#e8e4db" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222826" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Tick">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+  /* ---------- Neumorphism: everything is made of the same soft material ---------- */
+  :root {
+    --bg: #e8e4db;          /* the "material" — cards share this colour */
+    --ink: #232c28;
+    --muted: #616b65;
+    --done: #8b958f;
+    --accent: #2f6f5e;
+    --accent-2: #3d8a74;
+    --on-accent: #ffffff;
+    --danger: #b4483c;
+    --sd: #c4bdaf;          /* shadow (dark side) */
+    --sl: #ffffff;          /* highlight (light side) */
+    --radius: 22px;
+
+    --raised:    7px 7px 16px var(--sd), -7px -7px 16px var(--sl);
+    --raised-sm: 4px 4px 9px var(--sd), -4px -4px 9px var(--sl);
+    --inset:     inset 5px 5px 10px var(--sd), inset -5px -5px 10px var(--sl);
+    --inset-sm:  inset 3px 3px 6px var(--sd), inset -3px -3px 6px var(--sl);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #222826;
+      --ink: #e9eeeb;
+      --muted: #9aa69f;
+      --done: #6f7a74;
+      --accent: #5fb89d;
+      --accent-2: #4a9f86;
+      --on-accent: #10231d;
+      --danger: #e8877b;
+      --sd: #161a19;
+      --sl: #2e3633;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    /* SF Pro on iPhone, iPad and Mac (built into the device); closest system font elsewhere */
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.4;
+    -webkit-tap-highlight-color: transparent;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  button, input, select { -webkit-appearance: none; appearance: none; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 24px 20px 48px; }
+
+  /* ---------- Header ---------- */
+  header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 24px; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -0.02em; font-weight: 700; }
+
+  /* ---------- Progress card ---------- */
+  .progress-card {
+    background: var(--bg); border-radius: var(--radius); box-shadow: var(--raised);
+    padding: 20px; margin-bottom: 28px;
+  }
+  .progress-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
+  .progress-num { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+  .progress-label { color: var(--muted); font-size: 14px; font-weight: 500; }
+  .bar { height: 14px; padding: 3px; background: var(--bg); box-shadow: var(--inset-sm); border-radius: 999px; overflow: hidden; }
+  .bar > div {
+    height: 100%; width: 0; border-radius: 999px; transition: width .35s ease;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  }
+
+  .week { display: flex; justify-content: space-between; gap: 8px; margin-top: 18px; }
+  .day { flex: 1; text-align: center; font-size: 11px; color: var(--muted); font-weight: 500; }
+  .day .dot {
+    width: 100%; max-width: 34px; aspect-ratio: 1; margin: 0 auto 6px; border-radius: 11px;
+    background: var(--bg); box-shadow: var(--inset-sm); position: relative; overflow: hidden;
+  }
+  .day .dot > span { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); opacity: .85; }
+  .day.today { color: var(--accent); font-weight: 700; }
+  .day.today .dot { box-shadow: var(--inset-sm), 0 0 0 2px var(--accent); }
+  .day.future { opacity: .45; }
+
+  /* ---------- Activity list ---------- */
+  ul.list { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; }
+
+  /* ---------- Swipe row (after React Bits "Swipe Row") ----------
+     li.swipe = the raised tile + its spacing. .clip = rounded window.
+     .swipe-act = red Delete area behind. .item = the sliding surface. */
+  li.swipe {
+    --x: 0;                                   /* how far the row is pulled left, px */
+    --ease: cubic-bezier(0.23, 1, 0.32, 1);   /* React Bits EASE_OUT */
+    --dur: .3s;
+    position: relative; margin-bottom: 16px; border-radius: 18px; box-shadow: var(--raised-sm);
+    transition: box-shadow .2s ease, height .2s var(--ease), margin-bottom .2s var(--ease), opacity .2s var(--ease),
+                translate .22s var(--ease), scale .2s var(--ease);
+  }
+  li.swipe.done { box-shadow: none; }
+
+  /* hold-and-drag reorder: the lifted row floats above the others */
+  li.swipe.lifting, li.swipe.dropping { z-index: 5; translate: 0 calc(var(--dy, 0) * 1px); }
+  li.swipe.lifting {
+    scale: 1.03; cursor: grabbing;
+    box-shadow: var(--raised), 0 14px 30px rgba(0, 0, 0, .18);
+    transition: box-shadow .2s ease, scale .2s var(--ease);   /* no translate transition: follows the finger */
+  }
+  li.swipe.lifting .item:not(.done) { box-shadow: none; }
+  li.swipe.dropping { box-shadow: var(--raised-sm); }
+  body.reordering { cursor: grabbing; -webkit-user-select: none; user-select: none; }
+  li.swipe.collapsing { height: 0 !important; margin-bottom: 0; opacity: 0; overflow: hidden; }
+  .clip { position: relative; border-radius: 18px; overflow: hidden; transform: translateZ(0); height: 100%; }
+
+  .swipe-act {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: calc(var(--x) * 1px + 24px);       /* only as wide as what's revealed (+ a bit under the row) */
+    display: flex; justify-content: flex-end; visibility: hidden;
+    border: none; padding: 0; margin: 0; font: inherit; cursor: pointer; color: #fff;
+    background: linear-gradient(135deg, #d4574b, var(--danger));
+    transition: width var(--dur) var(--ease);
+  }
+  li.swipe.revealed .swipe-act { visibility: visible; }
+  li.swipe.dragging .swipe-act { transition: none; }
+  .swipe-act-inner {
+    width: 80px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    font-size: 11px; font-weight: 600; letter-spacing: .01em;
+    transition: width .3s var(--ease);
+  }
+  /* past the full-swipe point the icon "spreads" to follow the row edge */
+  li.swipe.armed .swipe-act-inner { width: calc(var(--x) * 1px); }
+  .swipe-act:active .swipe-act-inner { transform: scale(.97); }
+
+  .item {
+    display: flex; align-items: center; gap: 14px; position: relative;
+    background: var(--bg); border-radius: 18px;
+    padding: 14px 16px; cursor: pointer; user-select: none; -webkit-user-select: none;
+    touch-action: pan-y;                      /* vertical scroll stays native, we handle sideways */
+    -webkit-touch-callout: none;              /* no iOS long-press popup (we use long-press to reorder) */
+    transform: translateX(calc(var(--x) * -1px));
+    transition: transform var(--dur) var(--ease), box-shadow .2s ease;
+  }
+  li.swipe.dragging .item { transition: box-shadow .2s ease; cursor: grabbing; }
+  li.swipe.revealed .item { box-shadow: 6px 0 14px -6px rgba(0,0,0,.25); }
+
+  /* undo toast after a swipe-delete */
+  .toast {
+    position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 9;
+    transform: translate(-50%, 140%); opacity: 0; visibility: hidden;
+    transition: transform .3s cubic-bezier(0.23, 1, 0.32, 1), opacity .2s ease, visibility 0s linear .3s;
+    display: flex; align-items: center; gap: 14px; max-width: calc(100% - 32px); width: max-content;
+    background: var(--bg); color: var(--ink); border-radius: 16px; padding: 10px 10px 10px 16px;
+    box-shadow: var(--raised), 0 6px 20px rgba(0,0,0,.12); font-size: 14px; font-weight: 500;
+  }
+  .toast.show { transform: translate(-50%, 0); opacity: 1; visibility: visible; transition-delay: 0s; }
+  .toast span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toast button {
+    border: none; background: var(--bg); color: var(--accent); box-shadow: var(--raised-sm);
+    font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 10px; cursor: pointer; flex-shrink: 0;
+  }
+  .toast button:active { box-shadow: var(--inset-sm); }
+
+  @media (prefers-reduced-motion: reduce) {
+    li.swipe { --dur: .2s; }
+    .item, .swipe-act, .swipe-act-inner { transition-timing-function: ease-out; }
+  }
+  /* time the task was ticked, shown inside the row on the right */
+  .time {
+    flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--accent); white-space: nowrap;
+    font-variant-numeric: tabular-nums; text-align: right;
+  }
+  /* pressing a closed row sinks it in */
+  li.swipe:not(.revealed):not(.dragging):not(.lifting):not(.dropping):active { box-shadow: none; }
+  li.swipe:not(.revealed):not(.dragging):not(.lifting):not(.dropping) .item:active { box-shadow: var(--inset-sm); }
+  .item.done { box-shadow: var(--inset-sm); }   /* ticked items look pressed in */
+  .check {
+    width: 28px; height: 28px; border-radius: 9px; flex-shrink: 0;
+    display: grid; place-items: center; transition: all .2s ease;
+    background: var(--bg); box-shadow: var(--inset-sm);
+  }
+  .check svg { width: 16px; height: 16px; opacity: 0; transform: scale(.5); transition: all .2s ease; }
+  .check svg path { stroke: var(--on-accent); }
+  .item.done .check {
+    background: linear-gradient(135deg, var(--accent-2), var(--accent));
+    box-shadow: 2px 2px 5px var(--sd), -2px -2px 5px var(--sl);
+  }
+  .item.done .check svg { opacity: 1; transform: scale(1); }
+  .name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+  /* strike-through is drawn as a background line so it can animate across (works over wrapped lines too) */
+  .name-text {
+    background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 0% 1.5px;
+  }
+  .item.done .name { color: var(--done); }
+  .item.done .name-text { background-size: 100% 1.5px; }
+
+  /* ---------- Tick animation ---------- */
+  .check { position: relative; }
+  .check::after {                                   /* ripple ring */
+    content: ""; position: absolute; inset: -2px; border-radius: 11px;
+    border: 2px solid var(--accent); opacity: 0; pointer-events: none;
+  }
+  .tick-in .check { animation: check-pop .45s cubic-bezier(.3, 1.4, .5, 1) both; }
+  .tick-in .check::after { animation: ring .55s ease-out .05s both; }
+  .tick-in .check svg { transition: none; }
+  .tick-in .check svg path { stroke-dasharray: 1; animation: draw .3s ease-out .12s both; }
+  .tick-in .name { animation: fade-done .35s ease-out both; }
+  .tick-in .name-text { animation: strike .38s cubic-bezier(.6, 0, .3, 1) .08s both; }
+  .tick-in .time { animation: time-in .35s cubic-bezier(.2, .9, .3, 1) .15s both; }
+  .tick-in .clip { animation: row-press .4s ease-out both; }
+
+  .tick-out .check { animation: check-out .3s cubic-bezier(.3, 1.4, .5, 1) both; }
+  .tick-out .name-text { animation: unstrike .25s ease-in both; }
+  .tick-out .name { animation: fade-undone .3s ease-out both; }
+
+  @keyframes check-pop { 0% { transform: scale(.7); } 55% { transform: scale(1.15); } 100% { transform: scale(1); } }
+  @keyframes check-out { 0% { transform: scale(.85); } 100% { transform: scale(1); } }
+  @keyframes ring      { 0% { opacity: .6; transform: scale(.9); } 100% { opacity: 0; transform: scale(1.7); } }
+  @keyframes draw      { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+  @keyframes strike    { from { background-size: 0% 1.5px; } to { background-size: 100% 1.5px; } }
+  @keyframes unstrike  { from { background-size: 100% 1.5px; } to { background-size: 0% 1.5px; } }
+  @keyframes fade-done   { from { color: var(--ink); } to { color: var(--done); } }
+  @keyframes fade-undone { from { color: var(--done); } to { color: var(--ink); } }
+  @keyframes time-in   { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+  @keyframes row-press { 0% { scale: 1; } 35% { scale: .975; } 100% { scale: 1; } }
+
+  /* ---------- New task animation ---------- */
+  li.swipe.entering { overflow: hidden; transition-duration: .28s; }
+  li.swipe.entering .clip { animation: rise .45s cubic-bezier(.2, .9, .3, 1.15) both; }
+  @keyframes rise { from { opacity: 0; translate: 0 14px; scale: .96; } to { opacity: 1; translate: 0 0; scale: 1; } }
+
+  /* ---------- Progress feedback ---------- */
+  .progress-num { display: inline-block; transform-origin: left center; }
+  .progress-num.bump { animation: bump .4s cubic-bezier(.3, 1.4, .5, 1); }
+  .bar > div { position: relative; overflow: hidden; }
+  .bar.shine > div::after {                         /* all done: a shimmer sweeps across */
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,.55) 50%, transparent 80%);
+    animation: shine .9s ease-out .25s both;
+  }
+  @keyframes bump     { 0% { transform: scale(1); } 40% { transform: scale(1.14); color: var(--accent); } 100% { transform: scale(1); } }
+  @keyframes shine    { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tick-in *, .tick-out *, .tick-in .check::after, li.swipe.entering .clip,
+    .progress-num.bump, .bar.shine > div::after { animation: none !important; }
+  }
+
+  .empty { text-align: center; color: var(--muted); padding: 24px 0; }
+
+  /* ---------- Add form ---------- */
+  form.add {
+    display: flex; gap: 10px; background: var(--bg); box-shadow: var(--raised-sm);
+    border-radius: 18px; padding: 10px;
+  }
+  form.add input, form.add button { font: inherit; }
+  form.add input {
+    flex: 1; min-width: 0; border: none; background: var(--bg); box-shadow: var(--inset-sm);
+    border-radius: 12px; color: var(--ink); padding: 11px 14px; outline: none;
+  }
+  form.add input::placeholder { color: var(--muted); }
+  form.add button {
+    border: none; color: var(--on-accent); border-radius: 12px; padding: 0 18px; font-weight: 600; cursor: pointer;
+    background: linear-gradient(135deg, var(--accent-2), var(--accent));
+    box-shadow: 3px 3px 7px var(--sd), -3px -3px 7px var(--sl);
+    transition: box-shadow .15s ease, opacity .2s ease;
+  }
+  form.add button:active { box-shadow: inset 2px 2px 5px rgba(0,0,0,.25); }
+  form.add button:disabled { opacity: .45; cursor: default; box-shadow: none; }
+
+
+  .install {
+    display: none; margin-top: 24px; width: 100%; border: none; color: var(--accent);
+    background: var(--bg); box-shadow: var(--raised-sm); border-radius: 18px; padding: 14px;
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+  .install:active { box-shadow: var(--inset-sm); }
+  .install.show { display: block; }
+
+  /* ---------- Opening animation (plays once when the app loads) ----------
+     body.intro is set in the HTML and removed by script after ~1.5s,
+     so rows redrawn later (ticks, adds) don't replay it. --i = position for the stagger. */
+  body.intro header h1         { animation: intro-drop .5s cubic-bezier(.2, .8, .3, 1) both; }
+  body.intro .progress-card    { animation: intro-rise .55s cubic-bezier(.2, .8, .3, 1) .08s both; }
+  body.intro .bar > div        { animation: intro-bar .9s cubic-bezier(.3, .8, .3, 1) .35s both; }
+  body.intro .day              { animation: intro-pop .4s cubic-bezier(.3, 1.4, .5, 1) both;
+                                 animation-delay: calc(.22s + var(--i, 0) * .04s); }
+  body.intro .day .dot > span  { animation: intro-fill .6s ease-out both; animation-delay: calc(.45s + var(--i, 0) * .04s); }
+  body.intro li.swipe          { animation: intro-rise .5s cubic-bezier(.2, .8, .3, 1) both;
+                                 animation-delay: calc(.28s + min(var(--i, 0), 10) * .05s); }
+  body.intro form.add          { animation: intro-rise .5s cubic-bezier(.2, .8, .3, 1) both;
+                                 animation-delay: calc(.38s + min(var(--n, 0), 10) * .05s); }
+  /* "from" only: each element animates to its own normal look (e.g. future days stay faded) */
+  @keyframes intro-drop { from { opacity: 0; transform: translateY(-10px); } }
+  @keyframes intro-rise { from { opacity: 0; transform: translateY(16px); } }
+  @keyframes intro-pop  { from { opacity: 0; transform: scale(.6); } }
+  @keyframes intro-bar  { from { width: 0; } }
+  @keyframes intro-fill { from { height: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    body.intro * { animation: none !important; }
+  }
+</style>
+</head>
+<body class="intro">
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="today">Today</h1>
+    </div>
+  </header>
+
+  <section class="progress-card" aria-live="polite">
+    <div class="progress-top">
+      <span class="progress-num" id="count">0 / 0</span>
+      <span class="progress-label" id="pct">0% done</span>
+    </div>
+    <div class="bar"><div id="bar"></div></div>
+    <div class="week" id="week" aria-label="This week, Sunday to Saturday"></div>
+  </section>
+
+  <ul class="list" id="list"></ul>
+
+  <form class="add" id="addForm" autocomplete="off">
+    <input id="newName" type="text" maxlength="60" placeholder="Add an activity…" aria-label="New activity name">
+    <button type="submit" id="addBtn" disabled>Add</button>
+  </form>
+
+  <button class="install" id="installBtn">Install this app</button>
+
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <span id="toastText"></span>
+  <button id="toastUndo" type="button">Undo</button>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Default activities (change these to your own!) ----------
+  const DEFAULTS = [
+    { name: "Wake up early" },
+    { name: "Make the bed" },
+    { name: "Drink 8 glasses of water" },
+    { name: "Eat breakfast" },
+    { name: "Exercise for 30 minutes" },
+    { name: "Work / study" },
+    { name: "Read for 15 minutes" },
+    { name: "Tidy up the room" },
+    { name: "No phone 1 hour before bed" },
+    { name: "Sleep before 11 PM" }
+  ];
+
+  const KEY = "daily-tracker-v1";
+  const HISTORY_DAYS = 30;
+
+  // ---------- Safe storage (works even if storage is blocked) ----------
+  let memoryStore = null;
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) { if (memoryStore) return memoryStore; }
+    return memoryStore;
+  }
+  function save() {
+    memoryStore = state;
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* keep in memory only */ }
+  }
+
+  // ---------- Dates (uses your phone's own time zone) ----------
+  function dayKey(d) {
+    d = d || new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+  function fromKey(k) {
+    const p = k.split("-").map(Number);
+    return new Date(p[0], p[1] - 1, p[2]);
+  }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+  function freshState() {
+    return {
+      date: dayKey(),
+      activities: DEFAULTS.map(a => ({ id: uid(), name: a.name })),
+      done: [],
+      doneAt: {},   // id -> time it was ticked (ms)
+      history: {}
+    };
+  }
+
+  let state = load() || freshState();
+  if (!state.history) state.history = {};
+  if (!Array.isArray(state.done)) state.done = [];
+  if (!state.doneAt || typeof state.doneAt !== "object") state.doneAt = {};
+
+  function fmtTime(ms) {
+    return new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  // ---------- Daily reset ----------
+  function checkNewDay() {
+    const today = dayKey();
+    if (state.date === today) return false;
+    // remember how the last day went, then clear the ticks
+    const total = state.activities.length;
+    state.history[state.date] = { done: state.done.filter(id => state.activities.some(a => a.id === id)).length, total: total };
+    // keep only recent history
+    const keys = Object.keys(state.history).sort();
+    while (keys.length > HISTORY_DAYS) delete state.history[keys.shift()];
+    state.date = today;
+    state.done = [];
+    state.doneAt = {};
+    save();
+    return true;
+  }
+
+  // ---------- Elements ----------
+  const $ = id => document.getElementById(id);
+  const listEl = $("list"), countEl = $("count"), pctEl = $("pct"), barEl = $("bar"),
+        weekEl = $("week"), todayEl = $("today"),
+        form = $("addForm"), nameIn = $("newName"),
+        addBtn = $("addBtn"), installBtn = $("installBtn");
+
+  const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path pathLength="1" d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+
+  // which row should animate on the next render: { id, type: "tick-in" | "tick-out" | "enter" }
+  let fx = null;
+  function restart(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+
+  const TRASH_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ---------- Draw the screen ----------
+  function render() {
+    const now = new Date();
+    todayEl.textContent = now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
+
+    const total = state.activities.length;
+    const doneCount = state.activities.filter(a => state.done.includes(a.id)).length;
+    const pct = total ? Math.round((doneCount / total) * 100) : 0;
+    const countText = doneCount + " / " + total;
+    if (fx && countEl.textContent !== countText) restart(countEl, "bump");
+    countEl.textContent = countText;
+    pctEl.textContent = pct + "% done";
+    barEl.style.width = pct + "%";
+    if (fx && fx.type === "tick-in" && total && doneCount === total) restart(barEl.parentNode, "shine");
+
+    openRow = null;   // the list is redrawn, so no row is swiped open any more
+    if (total === 0) {
+      listEl.innerHTML = '<li class="empty">No activities yet. Add one below.</li>';
+    } else {
+      listEl.innerHTML = state.activities.map((a, i) => {
+        const isDone = state.done.includes(a.id);
+        const at = isDone && state.doneAt[a.id] ? fmtTime(state.doneAt[a.id]) : "";
+        return '<li class="swipe' + (isDone ? ' done' : '') + '" data-row="' + a.id + '" style="--i:' + i + '">' +
+          '<div class="clip">' +
+            '<button class="swipe-act" type="button" data-swipe-del="' + a.id + '" tabindex="-1" aria-hidden="true">' +
+              '<span class="swipe-act-inner">' + TRASH_SVG + '<span>Delete</span></span>' +
+            '</button>' +
+            '<div class="item' + (isDone ? ' done' : '') + '" data-id="' + a.id + '" role="checkbox" aria-checked="' + isDone + '" tabindex="0"' +
+              ' aria-keyshortcuts="Delete" aria-description="Swipe left or press Delete to remove">' +
+              '<span class="check">' + CHECK_SVG + '</span>' +
+              '<span class="name"><span class="name-text">' + esc(a.name) + '</span></span>' +
+              (at ? '<span class="time" title="Done at ' + at + '"><span class="sr">Done at </span>' + at + '</span>' : '') +
+            '</div>' +
+          '</div>' +
+          '</li>';
+      }).join("");
+    }
+
+    renderWeek(doneCount, total);
+    playFx();
+  }
+
+  function playFx() {
+    const f = fx; fx = null;
+    if (!f) return;
+    const row = listEl.querySelector('li.swipe[data-row="' + f.id + '"]');
+    if (!row) return;
+    if (f.type !== "enter") { row.classList.add(f.type); return; }
+    // new task: open up space for it, then let it rise in
+    row.classList.add("entering");
+    if (reduceMotion) { setTimeout(() => row.classList.remove("entering"), 0); return; }
+    const h = row.offsetHeight;
+    row.style.height = "0px"; row.style.marginBottom = "0px"; row.style.opacity = "0";
+    void row.offsetHeight;
+    row.style.height = h + "px"; row.style.marginBottom = ""; row.style.opacity = "";
+    setTimeout(() => { row.classList.remove("entering"); row.style.height = ""; }, 460);
+    const r = row.getBoundingClientRect();
+    if (r.bottom > window.innerHeight - 90 || r.top < 0) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function renderWeek(doneToday, totalToday) {
+    const todayK = dayKey();
+    const today = fromKey(todayK);
+    // this week, always Sunday to Saturday
+    const sunday = new Date(today);
+    sunday.setDate(today.getDate() - today.getDay());
+    let html = "";
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(sunday);
+      d.setDate(sunday.getDate() + i);
+      const k = dayKey(d);
+      const isFuture = d > today;
+      let ratio = 0;
+      if (k === todayK) ratio = totalToday ? doneToday / totalToday : 0;
+      else if (state.history[k] && state.history[k].total) ratio = state.history[k].done / state.history[k].total;
+      const label = d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3);
+      const title = k === todayK ? "Today" : isFuture ? "Coming up" : (state.history[k] ? state.history[k].done + " of " + state.history[k].total + " done" : "No data");
+      html += '<div class="day' + (k === todayK ? ' today' : '') + (isFuture ? ' future' : '') + '" title="' + title + '" style="--i:' + i + '">' +
+        '<div class="dot"><span style="height:' + Math.round(ratio * 100) + '%"></span></div>' + label + '</div>';
+    }
+    weekEl.innerHTML = html;
+  }
+
+  // ---------- Actions ----------
+  function toggle(id) {
+    checkNewDay();
+    const i = state.done.indexOf(id);
+    if (i === -1) { state.done.push(id); state.doneAt[id] = Date.now(); }
+    else { state.done.splice(i, 1); delete state.doneAt[id]; }
+    fx = { id, type: i === -1 ? "tick-in" : "tick-out" };
+    save(); render();
+  }
+
+  // ---------- Swipe row (behaviour and numbers from React Bits "Swipe Row") ----------
+  const ACTION_W = 80;        // open position: one 80px action
+  const HYST = 10;            // px of sideways travel before a drag starts
+  const FLICK = 110;          // px/s: faster than this decides open/close by direction
+  const RESIST = 0.55;        // rubber-band stiffness when pulled past the edges
+  const COMMIT_AT = 0.6;      // full swipe at 60% of the row width deletes
+  const COLLAPSE_MS = 200;
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  let drag = null;            // the row being dragged right now
+  let openRow = null;         // the row currently swiped open
+  let swallowClick = false;   // a drag ends with a click we must ignore
+
+  function setX(row, x) {
+    row.style.setProperty("--x", x.toFixed(2));
+    row.classList.toggle("revealed", x > 0.5);
+  }
+  function commitPoint(row) { return Math.max(COMMIT_AT * row.offsetWidth, ACTION_W + ACTION_W / 2); }
+  // rubber band, same formula as React Bits: o*dim*c / (dim + c*|o|)
+  function rubber(o, dim, c) { return (o * dim * c) / (dim + c * Math.abs(o)); }
+  // finger distance -> how far the row moves
+  function shape(raw, row) {
+    const w = row.offsetWidth;
+    if (raw < 0) return rubber(raw, w, RESIST);                 // pulled the wrong way: rubber band
+    if (raw <= w) return raw;                                   // follows the finger 1:1
+    return w + rubber(raw - w, w, RESIST);                      // past the edge: rubber band
+  }
+
+  function settle(row, target, flick) {
+    row.style.setProperty("--dur", reduceMotion ? ".2s" : flick ? ".4s" : ".3s");
+    // a flick open gets a little bounce (snapBounce 0.2)
+    row.style.setProperty("--ease", !reduceMotion && flick && target > 0 ? "cubic-bezier(0.3, 1.35, 0.5, 1)" : "cubic-bezier(0.23, 1, 0.32, 1)");
+    row.classList.remove("armed");
+    setX(row, target);
+    if (target > 0) {
+      if (openRow && openRow !== row) settle(openRow, 0);
+      openRow = row;
+    } else {
+      if (openRow === row) openRow = null;
+      // keep the red area visible while the row slides shut, then hide it
+      row.classList.add("revealed");
+      clearTimeout(row._t);
+      row._t = setTimeout(() => {
+        if ((parseFloat(row.style.getPropertyValue("--x")) || 0) === 0) row.classList.remove("revealed");
+      }, 420);
+    }
+  }
+
+  function commitDelete(row) {
+    if (!row || row.classList.contains("collapsing")) return;
+    const id = row.dataset.row;
+    if (openRow === row) openRow = null;
+    row.classList.add("armed", "revealed");
+    row.style.setProperty("--dur", ".2s");
+    row.style.setProperty("--ease", "cubic-bezier(0.23, 1, 0.32, 1)");
+    setX(row, row.offsetWidth);                          // slide the row off to the left
+    setTimeout(() => {
+      row.style.height = row.offsetHeight + "px";        // fix the height so it can shrink smoothly
+      void row.offsetHeight;
+      row.classList.add("collapsing");                   // height + gap + fade -> 0
+      setTimeout(() => removeWithUndo(id), COLLAPSE_MS);
+    }, reduceMotion ? 0 : 200);
+  }
+
+  // ---------- Hold and drag to reorder ----------
+  const HOLD_MS = 450;        // how long to hold before the row lifts
+  const HOLD_SLOP = 8;        // moving more than this (px) before then cancels the hold
+  const GAP = 16;             // space between rows (matches li.swipe margin-bottom)
+  const EDGE = 70;            // px from the top/bottom of the screen where auto-scroll kicks in
+  let hold = null;            // waiting to see if this press becomes a hold
+  let reorder = null;         // the row being moved right now
+
+  function buzz(ms) { if (navigator.vibrate) { try { navigator.vibrate(ms); } catch (err) {} } }
+  function cancelHold() { if (hold) { clearTimeout(hold.timer); hold = null; } }
+
+  function startReorder(row, item, pointerId, clientY) {
+    if (openRow === row) settle(row, 0);
+    drag = null;
+    const rows = Array.from(listEl.querySelectorAll("li.swipe"));
+    const idx = rows.indexOf(row);
+    if (idx === -1) return;
+    const rects = rows.map(r => r.getBoundingClientRect());
+    reorder = {
+      row, item, pointerId, rows, idx, to: idx,
+      startY: clientY, startScroll: window.scrollY, lastY: clientY,
+      centers: rects.map(r => r.top + r.height / 2 + window.scrollY),   // page positions
+      slots: rects.map(r => r.height + GAP), raf: 0
+    };
+    row.style.setProperty("--dy", "0");
+    row.classList.add("lifting");
+    document.body.classList.add("reordering");
+    try { item.setPointerCapture(pointerId); } catch (err) {}
+    buzz(10);
+    reorder.raf = requestAnimationFrame(autoScroll);
+  }
+
+  function reorderMove(clientY) {
+    const r = reorder;
+    r.lastY = clientY;
+    const dy = (clientY + window.scrollY) - (r.startY + r.startScroll);
+    r.row.style.setProperty("--dy", dy.toFixed(1));
+    // which slot is the lifted row's centre over?
+    const c = r.centers[r.idx] + dy;
+    let to = r.idx;
+    for (let i = r.idx + 1; i < r.rows.length; i++) if (c > r.centers[i]) to = i;
+    for (let i = r.idx - 1; i >= 0; i--) if (c < r.centers[i]) to = i;
+    if (to === r.to) return;
+    r.to = to;
+    // slide the other rows out of the way to open a gap
+    const s = r.slots[r.idx];
+    r.rows.forEach((el, i) => {
+      if (i === r.idx) return;
+      let shift = 0;
+      if (r.idx < to && i > r.idx && i <= to) shift = -s;
+      else if (to < r.idx && i >= to && i < r.idx) shift = s;
+      el.style.translate = shift ? "0 " + shift + "px" : "";
+    });
+  }
+
+  function autoScroll() {
+    if (!reorder) return;
+    const y = reorder.lastY, h = window.innerHeight;
+    let v = 0;
+    if (y < EDGE) v = -Math.ceil(((EDGE - y) / EDGE) * 14);
+    else if (y > h - EDGE) v = Math.ceil(((y - (h - EDGE)) / EDGE) * 14);
+    if (v) {
+      const before = window.scrollY;
+      window.scrollBy(0, v);
+      if (window.scrollY !== before) reorderMove(y);
+    }
+    reorder.raf = requestAnimationFrame(autoScroll);
+  }
+
+  function finishReorder(cancelled) {
+    const r = reorder; reorder = null;
+    cancelAnimationFrame(r.raf);
+    swallowClick = true; setTimeout(() => { swallowClick = false; }, 0);
+    const to = cancelled ? r.idx : r.to;
+    // glide the row into its new slot
+    let offset = 0;
+    if (to > r.idx) for (let i = r.idx + 1; i <= to; i++) offset += r.slots[i];
+    else for (let i = to; i < r.idx; i++) offset -= r.slots[i];
+    if (cancelled) r.rows.forEach(el => { el.style.translate = ""; });
+    r.row.classList.remove("lifting");
+    r.row.classList.add("dropping");
+    r.row.style.setProperty("--dy", String(offset));
+    setTimeout(() => {
+      document.body.classList.remove("reordering");
+      if (to !== r.idx) moveActivity(r.idx, to);
+      else render();
+    }, reduceMotion ? 0 : 220);
+  }
+
+  function moveActivity(from, to) {
+    const [a] = state.activities.splice(from, 1);
+    state.activities.splice(to, 0, a);
+    save(); render();
+  }
+
+  // while a row is lifted, stop the page from scrolling under the finger
+  document.addEventListener("touchmove", e => { if (reorder) e.preventDefault(); }, { passive: false });
+  // no long-press menu / text callout on rows
+  listEl.addEventListener("contextmenu", e => { if (e.target.closest(".item")) e.preventDefault(); });
+
+  listEl.addEventListener("pointerdown", e => {
+    if (e.button > 0 || reorder) return;
+    const item = e.target.closest(".item");
+    if (!item) return;
+    const row = item.closest("li.swipe");
+    if (row.classList.contains("collapsing")) return;
+    if (openRow && openRow !== row) settle(openRow, 0);
+    drag = {
+      row, item, id: e.pointerId, touch: e.pointerType === "touch",
+      sx: e.clientX, sy: e.clientY,
+      base: parseFloat(row.style.getPropertyValue("--x")) || 0,
+      engaged: false, x: 0, samples: [], armed: false
+    };
+    cancelHold();
+    hold = { id: e.pointerId, sx: e.clientX, sy: e.clientY, y: e.clientY };
+    hold.timer = setTimeout(() => {
+      const h = hold; hold = null;
+      if (h) startReorder(row, item, h.id, h.y);
+    }, HOLD_MS);
+  });
+
+  window.addEventListener("pointermove", e => {
+    if (reorder && e.pointerId === reorder.pointerId) { e.preventDefault(); reorderMove(e.clientY); return; }
+    if (hold && e.pointerId === hold.id) {
+      hold.y = e.clientY;
+      if (Math.abs(e.clientX - hold.sx) > HOLD_SLOP || Math.abs(e.clientY - hold.sy) > HOLD_SLOP) cancelHold();
+    }
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (!drag.engaged) {
+      if (Math.abs(dx) < HYST && Math.abs(dy) < HYST) return;
+      if (Math.abs(dy) > Math.abs(dx)) { drag = null; return; }   // it's a scroll, let it go
+      drag.engaged = true;
+      drag.row.classList.add("dragging");
+      try { drag.item.setPointerCapture(drag.id); } catch (err) {}
+    }
+    e.preventDefault();
+    const raw = drag.base - dx;
+    const x = shape(raw, drag.row);
+    drag.x = x;
+    setX(drag.row, x);
+    const now = performance.now();
+    drag.samples.push({ t: now, x });
+    while (drag.samples.length > 2 && now - drag.samples[0].t > 100) drag.samples.shift();
+    const armed = raw >= commitPoint(drag.row);   // finger went past 60% of the row: release deletes
+    if (armed !== drag.armed) {
+      drag.armed = armed;
+      drag.row.classList.toggle("armed", armed);
+      if (armed && drag.touch && navigator.vibrate) { try { navigator.vibrate(8); } catch (err) {} }
+    }
+  }, { passive: false });
+
+  function endDrag(e, cancelled) {
+    if (hold && e.pointerId === hold.id) cancelHold();
+    if (reorder && e.pointerId === reorder.pointerId) { finishReorder(cancelled); return; }
+    if (!drag || e.pointerId !== drag.id) return;
+    const d = drag; drag = null;
+    if (!d.engaged) return;                              // it was a tap; the click handler deals with it
+    swallowClick = true; setTimeout(() => { swallowClick = false; }, 0);
+    d.row.classList.remove("dragging");
+    if (cancelled) { settle(d.row, d.base); return; }
+    if (d.armed) { commitDelete(d.row); return; }
+    // velocity (px/s, positive = moving left) from the last ~100ms
+    // (if the finger paused before lifting, there are no recent samples, so speed is 0)
+    const now = performance.now();
+    const s = d.samples.filter(p => now - p.t <= 100);
+    const a = s[0], b = s[s.length - 1];
+    const v = s.length > 1 && b.t > a.t ? ((b.x - a.x) / (b.t - a.t)) * 1000 : 0;
+    let target;
+    if (Math.abs(v) >= FLICK) target = v > 0 ? ACTION_W : 0;
+    else target = d.x + 0.5 * v > ACTION_W / 2 ? ACTION_W : 0;   // projected resting point
+    settle(d.row, target, Math.abs(v) >= FLICK);
+  }
+  window.addEventListener("pointerup", e => endDrag(e, false));
+  window.addEventListener("pointercancel", e => endDrag(e, true));
+
+  // tap anywhere else closes an open row
+  document.addEventListener("pointerdown", e => {
+    if (openRow && !openRow.contains(e.target)) settle(openRow, 0);
+  });
+
+  listEl.addEventListener("click", e => {
+    if (swallowClick) { e.preventDefault(); e.stopPropagation(); return; }
+    const act = e.target.closest("[data-swipe-del]");
+    if (act) { commitDelete(act.closest("li.swipe")); return; }
+    const item = e.target.closest(".item");
+    if (!item) return;
+    const row = item.closest("li.swipe");
+    if (row === openRow) { settle(row, 0); return; }     // tapping an open row just closes it
+    toggle(item.dataset.id);
+  }, true);
+
+  listEl.addEventListener("keydown", e => {
+    if (!e.target.matches(".item")) return;
+    const row = e.target.closest("li.swipe");
+    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {   // Alt + ↑/↓ moves the task
+      e.preventDefault();
+      const id = e.target.dataset.id;
+      const from = state.activities.findIndex(a => a.id === id);
+      const to = from + (e.key === "ArrowUp" ? -1 : 1);
+      if (from === -1 || to < 0 || to >= state.activities.length) return;
+      moveActivity(from, to);
+      const moved = listEl.querySelector('.item[data-id="' + id + '"]');
+      if (moved) moved.focus();
+    }
+    else if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggle(e.target.dataset.id); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); settle(row, ACTION_W); }
+    else if (e.key === "ArrowRight" || e.key === "Escape") { if (row === openRow) { e.preventDefault(); settle(row, 0); } }
+    else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); commitDelete(row); }
+  });
+
+  // ---------- Delete with Undo ----------
+  const toastEl = $("toast"), toastText = $("toastText"), toastUndo = $("toastUndo");
+  let undoData = null, toastTimer = null;
+  function removeWithUndo(id) {
+    const idx = state.activities.findIndex(a => a.id === id);
+    if (idx === -1) { render(); return; }
+    const act = state.activities[idx];
+    undoData = { act, idx, wasDone: state.done.includes(id), at: state.doneAt[id], date: state.date };
+    state.activities.splice(idx, 1);
+    state.done = state.done.filter(x => x !== id);
+    delete state.doneAt[id];
+    save(); render();
+    toastText.textContent = 'Deleted "' + act.name + '"';
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, 5000);
+  }
+  function hideToast() { toastEl.classList.remove("show"); undoData = null; }
+  toastUndo.addEventListener("click", () => {
+    if (!undoData) return;
+    const u = undoData;
+    state.activities.splice(Math.min(u.idx, state.activities.length), 0, u.act);
+    if (u.wasDone && u.date === state.date) { state.done.push(u.act.id); if (u.at) state.doneAt[u.act.id] = u.at; }
+    fx = { id: u.act.id, type: "enter" };
+    save(); render();
+    clearTimeout(toastTimer); hideToast();
+  });
+
+  nameIn.addEventListener("input", () => { addBtn.disabled = !nameIn.value.trim(); });
+  form.addEventListener("submit", e => {
+    e.preventDefault();
+    const name = nameIn.value.trim();
+    if (!name) return;
+    checkNewDay();
+    const id = uid();
+    state.activities.push({ id, name: name });
+    fx = { id, type: "enter" };
+    save(); render();
+    nameIn.value = ""; addBtn.disabled = true;
+    nameIn.focus();
+  });
+
+  // ---------- Reset when a new day starts (even if the app stays open) ----------
+  function tick() { if (checkNewDay()) render(); }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { tick(); render(); } });
+  window.addEventListener("focus", tick);
+  setInterval(tick, 30 * 1000);
+
+  // ---------- PWA: offline support + install button ----------
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      try {
+        navigator.serviceWorker.register("sw.js").catch(() => {});
+      } catch (e) { /* not allowed here, app still works */ }
+    });
+  }
+  let installEvent = null;
+  window.addEventListener("beforeinstallprompt", e => {
+    e.preventDefault();
+    installEvent = e;
+    installBtn.classList.add("show");
+  });
+  installBtn.addEventListener("click", async () => {
+    if (!installEvent) return;
+    installEvent.prompt();
+    try { await installEvent.userChoice; } catch (e) {}
+    installEvent = null;
+    installBtn.classList.remove("show");
+  });
+  window.addEventListener("appinstalled", () => installBtn.classList.remove("show"));
+
+  // ---------- Start ----------
+  checkNewDay();
+  save();
+  render();
+  // opening animation: tell the add bar how many rows come before it, then switch the intro off when done
+  document.body.style.setProperty("--n", String(state.activities.length));
+  const endIntro = () => document.body.classList.remove("intro");
+  setTimeout(endIntro, reduceMotion ? 0 : 1000 + Math.min(state.activities.length, 10) * 50);
+  document.addEventListener("pointerdown", endIntro, { once: true });   // touching the app skips the rest
+})();
+</script>
+</body>
+</html>
