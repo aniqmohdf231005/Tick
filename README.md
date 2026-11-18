@@ -1,6 +1,6 @@
 # Tick (PWA)
 
-A simple app to tick off your daily activities. Ticks clear by themselves every new day.
+A simple app to tick off your daily activities. Ticks clear by themselves every new day. 
 
 ## What's inside
 
@@ -33,6 +33,7 @@ Other free options: GitHub Pages, Vercel, Cloudflare Pages.
 
 ## Install it on your phone
 
+- **Link:** https://aniqmohdf231005.github.io/Tick/
 - **Android (Chrome):** open the link → tap the **Install this app** button (or menu ⋮ → *Install app*).
 - **iPhone (Safari):** open the link → tap **Share** → **Add to Home Screen**.
 
