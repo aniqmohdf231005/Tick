@@ -21,15 +21,6 @@ Open `index.html`, find `const DEFAULTS = [` and edit the list:
 
 Note: the defaults only load the **first time** the app opens. After that, **swipe a task left** to delete it, **hold and drag** a task to change the order, or use the box at the bottom to add new ones.
 
-## Put it online (free) so you can install it on your phone
-
-A PWA must be on an **https** link. The easiest free way:
-
-1. Go to **https://app.netlify.com/drop**
-2. Drag the whole `tick` folder onto the page.
-3. You get a link like `https://something.netlify.app`. Open it on your phone.
-
-Other free options: GitHub Pages, Vercel, Cloudflare Pages.
 
 ## Install it on your phone
 
